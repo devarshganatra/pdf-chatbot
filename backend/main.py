@@ -1,6 +1,6 @@
 import os
 import tempfile
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langchain_community.document_loaders import PyMuPDFLoader
@@ -11,6 +11,8 @@ from chromadb.config import Settings
 import google.generativeai as genai
 from dotenv import load_dotenv
 import logging
+import re
+import json
 load_dotenv()
 
 # --- Config ---
@@ -69,7 +71,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             metadatas = [{"source": file.filename, "chunk": i} for i in range(len(texts))]
         embeddings = embedder.encode(texts).tolist()
         # Clear previous collection
-        collection.delete(where={})
+        collection.delete()
         collection.add(
             documents=texts,
             embeddings=embeddings,
@@ -90,7 +92,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 # --- Ask Endpoint ---
 @app.post("/ask")
-async def ask_question(question: str = Form(...)):
+async def ask_question(question: str = Form(...), memory: str = Form(None)):
     global last_pdf_text
     try:
         # Embed question
@@ -112,6 +114,7 @@ async def ask_question(question: str = Form(...)):
         if not context.strip():
             context = last_pdf_text
         prompt = (
+            (f"Conversation history:\n{memory}\n\n" if memory else "") +
             "You are a helpful assistant. Use the following PDF content to answer the user's question as concisely and accurately as possible. "
             "If the answer is not present, say 'I could not find the answer in the PDF.'\n\n"
             "PDF Content:\n"
@@ -126,4 +129,22 @@ async def ask_question(question: str = Form(...)):
         return JSONResponse({"answer": answer, "context": context})
     except Exception as e:
         logging.exception("Error answering question")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/summarize")
+async def summarize_pdf(words: int = Query(200, description="Approximate number of words for the summary")):
+    global last_pdf_text
+    try:
+        if not last_pdf_text.strip():
+            return JSONResponse(status_code=400, content={"error": "No PDF uploaded."})
+        prompt = (
+            f"Summarize the following PDF content in about {words} words. Be detailed and descriptive.\n\nPDF Content:\n"
+            f"{last_pdf_text}\n\nSummary:"
+        )
+        model = genai.GenerativeModel("models/gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        summary = response.text.strip() if hasattr(response, "text") else str(response)
+        return JSONResponse({"summary": summary})
+    except Exception as e:
+        logging.exception("Error summarizing PDF")
         return JSONResponse(status_code=500, content={"error": str(e)}) 
