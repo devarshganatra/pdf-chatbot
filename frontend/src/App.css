@@ -1,0 +1,21 @@
+body {
+  background: #f4f6fa;
+  font-family: 'Inter', 'Roboto', Arial, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: #f4f6fa;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  background: #e0e0e0;
+}
+::-webkit-scrollbar-thumb {
+  background: #bdbdbd;
+  border-radius: 4px;
+} 
